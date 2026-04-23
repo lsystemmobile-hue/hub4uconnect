@@ -1,4 +1,5 @@
-import { LockKeyhole, RefreshCw, ShieldCheck, UserCog } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck, UserCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,8 @@ import { isSupabaseConfigured } from "@/integrations/supabase/client";
 
 export default function CentralBillingAdminPage() {
   const { profile, signOut } = useBillingAuth();
-  const { templates, markPaid, charges, syncOmie } = useCentralCobrancaData();
+  const { markPaid, charges, syncOmie } = useCentralCobrancaData();
+  const [syncStep, setSyncStep] = useState<string | null>(null);
 
   return (
     <div className="space-y-6">
@@ -36,9 +38,40 @@ export default function CentralBillingAdminPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p className="text-muted-foreground">{isSupabaseConfigured ? "Supabase configurado para autenticação real e leitura de dados." : "Supabase ainda não configurado no frontend. Central operando em modo demonstração."}</p>
-            <Button variant="outline" onClick={() => void syncOmie.mutateAsync()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Reconciliar Omie
+
+            {syncStep && (
+              <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${syncStep.startsWith("Erro:") ? "bg-red-50 border-red-200" : "bg-muted/50"}`}>
+                {syncStep.startsWith("Concluído") ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                ) : syncStep.startsWith("Erro:") ? (
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                )}
+                <span className={syncStep.startsWith("Concluído") ? "text-green-700 font-medium" : syncStep.startsWith("Erro:") ? "text-red-700 font-medium" : "text-muted-foreground"}>
+                  {syncStep}
+                </span>
+              </div>
+            )}
+
+            <Button
+              variant="outline"
+              disabled={syncOmie.isPending}
+              onClick={async () => {
+                setSyncStep(null);
+                syncOmie.reset();
+                try {
+                  await syncOmie.mutateAsync((step) => setSyncStep(step));
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  setSyncStep(`Erro: ${msg}`);
+                } finally {
+                  syncOmie.reset();
+                }
+              }}
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${syncOmie.isPending ? "animate-spin" : ""}`} />
+              {syncOmie.isPending ? "Sincronizando..." : "Reconciliar Omie"}
             </Button>
           </CardContent>
         </Card>
@@ -60,23 +93,6 @@ export default function CentralBillingAdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Template utilitário ativo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {templates.map((template) => (
-            <div key={template.id} className="rounded-2xl border p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-medium">{template.name}</p>
-                <Badge variant={template.active ? "default" : "secondary"}>{template.category}</Badge>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">{template.content}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">Ações administrativas rápidas</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
@@ -89,7 +105,7 @@ export default function CentralBillingAdminPage() {
                   <p className="font-medium">{charge.customer_name}</p>
                   <p className="text-sm text-muted-foreground">Simular baixa vinda da Omie</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => void markPaid.mutateAsync(charge.id)}>
+                <Button variant="outline" size="sm" onClick={async () => { try { await markPaid.mutateAsync(charge.id); } finally { markPaid.reset(); } }}>
                   Marcar como paga
                 </Button>
               </div>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarClock, Eye, RefreshCw, Search, Send } from "lucide-react";
+import { CalendarClock, RefreshCw, Search, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,30 +25,37 @@ const defaultFilters: ChargeFilters = {
 
 export default function CentralBillingChargesPage() {
   const { profile } = useBillingAuth();
-  const { charges, isLoading, sendNow, schedule, syncOmie } = useCentralCobrancaData();
+  const { charges, isLoading, sendNow, schedule, syncOmie, templates } = useCentralCobrancaData();
+
+  const activeTemplateContent = (templates.find((t) => t.active) ?? templates[0])?.content;
+
   const [filters, setFilters] = useState<ChargeFilters>(defaultFilters);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [previewCharge, setPreviewCharge] = useState<Charge | null>(null);
   const [scheduleCharge, setScheduleCharge] = useState<Charge | null>(null);
 
   const filteredCharges = useMemo(() => filterCharges(charges, filters), [charges, filters]);
+  const allSelected = filteredCharges.length > 0 && filteredCharges.every((c) => selectedIds.includes(c.id));
 
-  const allSelected = filteredCharges.length > 0 && filteredCharges.every((charge) => selectedIds.includes(charge.id));
+  const handleToggleAll = (checked: boolean) =>
+    setSelectedIds(checked ? filteredCharges.map((c) => c.id) : []);
 
-  const handleToggleAll = (checked: boolean) => {
-    setSelectedIds(checked ? filteredCharges.map((charge) => charge.id) : []);
-  };
+  const handleToggleOne = (id: string, checked: boolean) =>
+    setSelectedIds((cur) => checked ? [...new Set([...cur, id])] : cur.filter((x) => x !== id));
 
-  const handleToggleOne = (chargeId: string, checked: boolean) => {
-    setSelectedIds((current) => (checked ? [...new Set([...current, chargeId])] : current.filter((id) => id !== chargeId)));
-  };
-
-  const handleBulkSend = async (message: string) => {
-    if (selectedIds.length === 0) return;
-    await sendNow.mutateAsync({ chargeIds: selectedIds, customMessage: message });
-    setPreviewCharge(null);
-    setSelectedIds([]);
-    toast.success("Cobranças enviadas com confirmação manual.");
+  const handleBulkSend = async (message: string, singleChargeId?: string) => {
+    const ids = singleChargeId ? [singleChargeId] : selectedIds;
+    if (ids.length === 0) return;
+    try {
+      await sendNow.mutateAsync({ chargeIds: ids, customMessage: message });
+      setPreviewCharge(null);
+      setSelectedIds([]);
+      toast.success("Cobranças enviadas com confirmação manual.");
+    } catch (err) {
+      toast.error(`Falha ao enviar: ${err instanceof Error ? err.message : "Erro desconhecido"}`);
+    } finally {
+      sendNow.reset();
+    }
   };
 
   return (
@@ -61,15 +68,15 @@ export default function CentralBillingChargesPage() {
               <p className="mt-1 text-sm text-muted-foreground">Selecione, revise e envie apenas após conferir mensagem e boleto.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => void syncOmie.mutateAsync()} disabled={syncOmie.isPending}>
-                <RefreshCw className="mr-2 h-4 w-4" />
+              <Button variant="outline" onClick={async () => { try { await syncOmie.mutateAsync(undefined); } finally { syncOmie.reset(); } }} disabled={syncOmie.isPending}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${syncOmie.isPending ? "animate-spin" : ""}`} />
                 {syncOmie.isPending ? "Sincronizando..." : "Sincronizar Omie"}
               </Button>
-              <Button variant="outline" disabled={selectedIds.length === 0} onClick={() => setScheduleCharge(charges.find((charge) => charge.id === selectedIds[0]) ?? null)}>
+              <Button variant="outline" disabled={selectedIds.length === 0} onClick={() => setScheduleCharge(charges.find((c) => c.id === selectedIds[0]) ?? null)}>
                 <CalendarClock className="mr-2 h-4 w-4" />
                 Agendar selecionada
               </Button>
-              <Button disabled={selectedIds.length === 0} onClick={() => setPreviewCharge(charges.find((charge) => charge.id === selectedIds[0]) ?? null)}>
+              <Button disabled={selectedIds.length === 0} onClick={() => setPreviewCharge(charges.find((c) => c.id === selectedIds[0]) ?? null)}>
                 <Send className="mr-2 h-4 w-4" />
                 Enviar via WhatsApp
               </Button>
@@ -82,22 +89,15 @@ export default function CentralBillingChargesPage() {
               <Label htmlFor="charge-search">Buscar cliente</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="charge-search"
-                  className="pl-9"
-                  value={filters.search}
-                  onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
-                  placeholder="Nome ou documento"
-                />
+                <Input id="charge-search" className="pl-9" value={filters.search}
+                  onChange={(e) => setFilters((cur) => ({ ...cur, search: e.target.value }))}
+                  placeholder="Nome ou documento" />
               </div>
             </div>
-
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value as ChargeFilters["status"] }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+              <Select value={filters.status} onValueChange={(v) => setFilters((cur) => ({ ...cur, status: v as ChargeFilters["status"] }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   <SelectItem value="pendente">Pendente</SelectItem>
@@ -109,15 +109,14 @@ export default function CentralBillingChargesPage() {
                 </SelectContent>
               </Select>
             </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Vencimento de</Label>
-                <Input type="date" value={filters.dueDateFrom} onChange={(event) => setFilters((current) => ({ ...current, dueDateFrom: event.target.value }))} />
+                <Input type="date" value={filters.dueDateFrom} onChange={(e) => setFilters((cur) => ({ ...cur, dueDateFrom: e.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label>Até</Label>
-                <Input type="date" value={filters.dueDateTo} onChange={(event) => setFilters((current) => ({ ...current, dueDateTo: event.target.value }))} />
+                <Input type="date" value={filters.dueDateTo} onChange={(e) => setFilters((cur) => ({ ...cur, dueDateTo: e.target.value }))} />
               </div>
             </div>
           </div>
@@ -127,7 +126,7 @@ export default function CentralBillingChargesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
-                    <Checkbox checked={allSelected} onCheckedChange={(value) => handleToggleAll(Boolean(value))} aria-label="Selecionar todas" />
+                    <Checkbox checked={allSelected} onCheckedChange={(v) => handleToggleAll(Boolean(v))} aria-label="Selecionar todas" />
                   </TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>WhatsApp</TableHead>
@@ -141,28 +140,22 @@ export default function CentralBillingChargesPage() {
                 {filteredCharges.map((charge) => (
                   <TableRow key={charge.id}>
                     <TableCell>
-                      <Checkbox
-                        checked={selectedIds.includes(charge.id)}
-                        onCheckedChange={(value) => handleToggleOne(charge.id, Boolean(value))}
-                        aria-label={`Selecionar ${charge.customer_name}`}
-                      />
+                      <Checkbox checked={selectedIds.includes(charge.id)}
+                        onCheckedChange={(v) => handleToggleOne(charge.id, Boolean(v))}
+                        aria-label={`Selecionar ${charge.customer_name}`} />
                     </TableCell>
                     <TableCell>
-                      <div>
-                        <p className="font-medium">{charge.customer_name}</p>
-                        <p className="text-xs text-muted-foreground">{charge.customer_document}</p>
-                      </div>
+                      <p className="font-medium">{charge.customer_name}</p>
+                      <p className="text-xs text-muted-foreground">{charge.customer_document}</p>
                     </TableCell>
                     <TableCell>{charge.whatsapp_phone}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(charge.amount_cents)}</TableCell>
                     <TableCell>{formatDate(charge.due_date)}</TableCell>
-                    <TableCell>
-                      <CentralBillingStatusBadge status={charge.status} />
-                    </TableCell>
+                    <TableCell><CentralBillingStatusBadge status={charge.status} /></TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => setPreviewCharge(charge)}>
-                          <Eye className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" title="Revisar e enviar" onClick={() => setPreviewCharge(charge)}>
+                          <Send className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => setScheduleCharge(charge)}>
                           <CalendarClock className="h-4 w-4" />
@@ -171,13 +164,13 @@ export default function CentralBillingChargesPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!isLoading && filteredCharges.length === 0 ? (
+                {!isLoading && filteredCharges.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                       Nenhuma cobrança encontrada com os filtros atuais.
                     </TableCell>
                   </TableRow>
-                ) : null}
+                )}
               </TableBody>
             </Table>
           </div>
@@ -193,25 +186,32 @@ export default function CentralBillingChargesPage() {
       <CentralBillingPreviewDialog
         open={Boolean(previewCharge)}
         charge={previewCharge}
+        activeTemplateContent={activeTemplateContent}
         onOpenChange={(open) => !open && setPreviewCharge(null)}
-        onConfirm={(message) => void handleBulkSend(message)}
+        onConfirm={(message) => handleBulkSend(message, previewCharge?.id)}
       />
 
       <CentralBillingScheduleDialog
         open={Boolean(scheduleCharge)}
         charge={scheduleCharge}
+        activeTemplateContent={activeTemplateContent}
         onOpenChange={(open) => !open && setScheduleCharge(null)}
         onConfirm={async ({ scheduledFor, approvalNote, snapshotMessage }) => {
-          if (!scheduleCharge || !profile) return;
-          await schedule.mutateAsync({
-            chargeIds: [scheduleCharge.id],
-            scheduledFor,
-            approvalNote,
-            approvedBy: profile.fullName,
-            snapshotMessage,
-          });
-          setScheduleCharge(null);
-          toast.success("Agendamento aprovado e salvo.");
+          if (!scheduleCharge) throw new Error("Nenhuma cobrança selecionada.");
+          if (!profile) throw new Error("Perfil do usuário não carregado. Faça login novamente.");
+          try {
+            await schedule.mutateAsync({
+              chargeIds: [scheduleCharge.id],
+              scheduledFor,
+              approvalNote,
+              approvedBy: profile.id,
+              snapshotMessage,
+            });
+            setScheduleCharge(null);
+            toast.success("Agendamento aprovado e salvo.");
+          } finally {
+            schedule.reset();
+          }
         }}
       />
     </div>

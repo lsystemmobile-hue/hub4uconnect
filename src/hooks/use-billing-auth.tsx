@@ -63,9 +63,10 @@ export function BillingAuthProvider({ children }: { children: React.ReactNode })
       if (!mounted) return;
       setSession(data.session);
       if (data.session?.user.id) {
-        setProfile(await loadProfile(data.session.user.id));
+        const p = await loadProfile(data.session.user.id);
+        if (mounted) setProfile(p ?? { ...demoProfile, id: data.session.user.id, email: data.session.user.email ?? "" });
       }
-      setLoading(false);
+      if (mounted) setLoading(false);
     });
 
     const { data } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {

@@ -39,8 +39,12 @@ export function getChargeStatusLabel(status: ChargeStatus) {
   return labels[status];
 }
 
+const DEFAULT_MESSAGE =
+  "Olá, {{nome}}! Identificamos um boleto em aberto no valor de {{valor}} com vencimento em {{data}}. Por favor, efetue o pagamento para evitar juros.";
+
 export function buildMessagePreview(charge: Charge): MessagePreview {
-  const message = charge.message_preview
+  const template = charge.message_preview || DEFAULT_MESSAGE;
+  const message = template
     .replace("{{nome}}", charge.customer_name)
     .replace("{{valor}}", formatCurrency(charge.amount_cents))
     .replace("{{data}}", formatDate(charge.due_date));

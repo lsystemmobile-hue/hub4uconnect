@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { Bell, CalendarClock, LayoutDashboard, Lock, MessageSquareText, Settings2, Wallet } from "lucide-react";
+import { Bell, CalendarClock, LayoutDashboard, Lock, MessageSquareText, RefreshCw, Settings2, Wallet } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,12 +20,33 @@ const tabs = [
 
 export function CentralBillingLayout() {
   const location = useLocation();
-  const { profile } = useBillingAuth();
+  const { profile, loading } = useBillingAuth();
 
   const activeTab = useMemo(() => {
     const current = tabs.find((tab) => location.pathname.includes(tab.path));
     return current?.value ?? "dashboard";
   }, [location.pathname]);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4">
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+            <RefreshCw className="h-6 w-6 animate-spin text-primary" />
+          </div>
+          <div className="space-y-1 text-center">
+            <p className="text-sm font-medium text-foreground">Central de Cobrança</p>
+            <p className="text-xs text-muted-foreground">Verificando sessão...</p>
+          </div>
+        </div>
+        <div className="flex gap-1.5">
+          <div className="h-1.5 w-8 animate-pulse rounded-full bg-primary/30" style={{ animationDelay: "0ms" }} />
+          <div className="h-1.5 w-8 animate-pulse rounded-full bg-primary/30" style={{ animationDelay: "200ms" }} />
+          <div className="h-1.5 w-8 animate-pulse rounded-full bg-primary/30" style={{ animationDelay: "400ms" }} />
+        </div>
+      </div>
+    );
+  }
 
   if (!profile) {
     return <CentralBillingAuthGate />;
